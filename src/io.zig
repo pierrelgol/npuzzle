@@ -6,9 +6,10 @@ const solver = @import("solver.zig");
 const Solution = solver.Solution;
 const Statistics = solver.Statistics;
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
-pub fn parseInputFile(allocator: Allocator, file_path: []const u8) !*State {
-    const file_content = try std.fs.cwd().readFileAlloc(file_path, allocator, @enumFromInt(1024 * 1024));
+pub fn parseInputFile(allocator: Allocator, io: Io, file_path: []const u8) !*State {
+    const file_content = try Io.Dir.cwd().readFileAlloc(io, file_path, allocator, .limited(1024 * 1024));
     defer allocator.free(file_content);
 
     var size: ?usize = null;

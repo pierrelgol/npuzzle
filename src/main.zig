@@ -228,16 +228,11 @@ fn generatePuzzle(
 pub fn main() !void {
     const allocator = heap.smp_allocator;
 
-    var stderr_buffer: [8192]u8 = undefined;
-    var stderr_file = fs.File.stderr().writer(&stderr_buffer);
-    const stderr: *Io.Writer = &stderr_file.interface;
-
-    var stdout_buffer: [8192]u8 = undefined;
-    var stdout_file = fs.File.stdout().writer(&stdout_buffer);
-    const stdout: *Io.Writer = &stdout_file.interface;
+    var threaded: Io.Threaded = .init(allocator, .{});
+    defer threaded.deinit();
 
     const opts = parseArgs(allocator) catch |err| {
-        stderr.print("Error: {}\n", .{err}) catch {};
+        std.debug.print("Error: {}\n", .{err});
         process.exit(1);
     };
     defer {
@@ -248,7 +243,7 @@ pub fn main() !void {
 
     const initial_state = switch (opts.input_mode) {
         .file => |path| blk: {
-            break :blk io.parseInputFile(allocator, path) catch |err| {
+            break :blk io.parseInputFile(allocator, threaded.io(), path) catch |err| {
                 std.debug.print("Error parsing file: {}\n", .{err});
                 process.exit(1);
             };
@@ -280,7 +275,7 @@ pub fn main() !void {
     const is_solvable = solvability.isSolvable(initial_state, goal_state);
 
     if (!is_solvable) {
-        try stdout.print("This puzzle is unsolvable.\n", .{});
+        std.debug.print("This puzzle is unsolvable.\n", .{});
         initial_state.deinit();
         return;
     }
@@ -316,18 +311,18 @@ pub fn main() !void {
         );
 
     var solution = solution_opt orelse {
-        try stdout.print("This puzzle is unsolvable.\n", .{});
+        std.debug.print("This puzzle is unsolvable.\n", .{});
         return;
     };
     defer solution.deinit();
 
-    try stdout.print("Solution found!\n\n", .{});
-    try stdout.print("Time complexity: {d} states selected\n", .{solution.stats.states_selected});
-    try stdout.print("Space complexity: {d} max states in memory\n", .{solution.stats.max_states_in_memory});
-    try stdout.print("Solution length: {d} moves\n\n", .{solution.stats.solution_length});
+    std.debug.print("Solution found!\n\n", .{});
+    std.debug.print("Time complexity: {d} states selected\n", .{solution.stats.states_selected});
+    std.debug.print("Space complexity: {d} max states in memory\n", .{solution.stats.max_states_in_memory});
+    std.debug.print("Solution length: {d} moves\n\n", .{solution.stats.solution_length});
 
-    try stdout.print("Solution path:\n", .{});
-    try stdout.print("=================================================\n", .{});
+    std.debug.print("Solution path:\n", .{});
+    std.debug.print("=================================================\n", .{});
 
     const puzzle_size = solution.path[0].size;
     const max_tile_value = puzzle_size * puzzle_size - 1;
@@ -345,44 +340,44 @@ pub fn main() !void {
             moved_tile = state.tiles[prev_state.empty_pos];
         }
 
-        try stdout.print("\nStep {d}:\n┌", .{i});
-        for (0..box_width) |_| try stdout.print("─", .{});
-        try stdout.print("┐\n", .{});
+        std.debug.print("\nStep {d}:\n┌", .{i});
+        for (0..box_width) |_| std.debug.print("─", .{});
+        std.debug.print("┐\n", .{});
 
         for (0..state.size) |row| {
-            try stdout.print("│ ", .{});
+            std.debug.print("│ ", .{});
             for (0..state.size) |col| {
                 const tile = state.tiles[row * state.size + col];
 
                 if (tile == 0) {
                     if (tile_width == 1) {
-                        try stdout.print("{s}{d}{s} ", .{ CYAN, tile, RESET });
+                        std.debug.print("{s}{d}{s} ", .{ CYAN, tile, RESET });
                     } else {
-                        try stdout.print("{s}{d:>2}{s} ", .{ CYAN, tile, RESET });
+                        std.debug.print("{s}{d:>2}{s} ", .{ CYAN, tile, RESET });
                     }
                 } else if (moved_tile != null and tile == moved_tile.?) {
                     if (tile_width == 1) {
-                        try stdout.print("{s}{d}{s} ", .{ YELLOW, tile, RESET });
+                        std.debug.print("{s}{d}{s} ", .{ YELLOW, tile, RESET });
                     } else {
-                        try stdout.print("{s}{d:>2}{s} ", .{ YELLOW, tile, RESET });
+                        std.debug.print("{s}{d:>2}{s} ", .{ YELLOW, tile, RESET });
                     }
                 } else {
                     if (tile_width == 1) {
-                        try stdout.print("{d} ", .{tile});
+                        std.debug.print("{d} ", .{tile});
                     } else {
-                        try stdout.print("{d:>2} ", .{tile});
+                        std.debug.print("{d:>2} ", .{tile});
                     }
                 }
             }
-            try stdout.print("│\n", .{});
+            std.debug.print("│\n", .{});
         }
 
-        try stdout.print("└", .{});
-        for (0..box_width) |_| try stdout.print("─", .{});
-        try stdout.print("┘\n", .{});
+        std.debug.print("└", .{});
+        for (0..box_width) |_| std.debug.print("─", .{});
+        std.debug.print("┘\n", .{});
     }
 
-    try stdout.print("\n=================================================\n", .{});
+    std.debug.print("\n=================================================\n", .{});
     assert(solution.stats.solution_length == solution.path.len - 1);
 }
 
