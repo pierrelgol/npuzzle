@@ -27,9 +27,11 @@ pub fn solveParallel(
     defer shared_state.deinit();
 
     const pooled_initial = try shared_state.queues[0].memory_pool.create(shared_state.queues[0].arena.allocator());
+    const pooled_tiles = try shared_state.queues[0].arena.allocator().alloc(u8, initial.size * initial.size);
+    @memcpy(pooled_tiles, initial.tiles);
     pooled_initial.* = initial.*;
-    pooled_initial.tiles = pooled_initial.tiles_storage[0 .. initial.size * initial.size];
-    initial.deinit();
+    pooled_initial.tiles = pooled_tiles;
+    initial.deinit(allocator);
 
     pooled_initial.g_cost = 0;
     pooled_initial.h_cost = if (mode == .uniform_cost) 0 else heuristic_fn(pooled_initial, goal_lookup);
@@ -60,7 +62,7 @@ pub fn solveParallel(
             var closed_iter = final_closed_set.keyIterator();
             while (closed_iter.next()) |state_ptr| {
                 const state: *State = @constCast(state_ptr.*);
-                state.deinit();
+                state.deinit(allocator);
             }
             final_closed_set.deinit();
         }
@@ -78,7 +80,7 @@ pub fn solveParallel(
 
         var previous_cloned_state: ?*State = null;
         for (pooled_path.items, 0..) |pooled_state, index| {
-            const cloned_state = try pooled_state.clone();
+            const cloned_state = try pooled_state.clone(allocator);
             cloned_state.parent = previous_cloned_state;
             final_path[index] = cloned_state;
             try final_closed_set.put(cloned_state, {});
@@ -356,7 +358,7 @@ fn worker(
         for (successors) |successor_base| {
             const current_best_cost2 = shared.best_cost.load(.seq_cst);
             if (current_best_cost2 != std.math.maxInt(u32) and successor_base.f_cost >= current_best_cost2) {
-                successor_base.deinit();
+                successor_base.deinit(shared.allocator);
                 continue;
             }
 
@@ -367,7 +369,7 @@ fn worker(
             successor_shard.mutex.unlock();
 
             if (is_already_closed) {
-                successor_base.deinit();
+                successor_base.deinit(shared.allocator);
                 continue;
             }
 
@@ -375,12 +377,19 @@ fn worker(
             my_queue.mutex.lock();
             const pooled_successor = my_queue.memory_pool.create(my_queue.arena.allocator()) catch {
                 my_queue.mutex.unlock();
-                successor_base.deinit();
+                successor_base.deinit(shared.allocator);
                 continue;
             };
+            const pooled_tiles = my_queue.arena.allocator().alloc(u8, successor_base.size * successor_base.size) catch {
+                my_queue.memory_pool.destroy(pooled_successor);
+                my_queue.mutex.unlock();
+                successor_base.deinit(shared.allocator);
+                continue;
+            };
+            @memcpy(pooled_tiles, successor_base.tiles);
             pooled_successor.* = successor_base.*;
-            pooled_successor.tiles = pooled_successor.tiles_storage[0 .. successor_base.size * successor_base.size];
-            successor_base.deinit();
+            pooled_successor.tiles = pooled_tiles;
+            successor_base.deinit(shared.allocator);
 
             my_queue.priority_queue.add(.{ .state = pooled_successor, .owner_index = worker_index }) catch {
                 my_queue.memory_pool.destroy(pooled_successor);
