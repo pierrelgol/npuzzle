@@ -1,11 +1,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
+const solver = @import("solver.zig");
 
 pub const MAX_SIZE: usize = 16;
 
 pub const State = struct {
-    tiles_storage: [MAX_SIZE * MAX_SIZE]u8,
     tiles: []u8,
     size: usize,
     empty_pos: usize,
@@ -13,7 +13,6 @@ pub const State = struct {
     h_cost: u32,
     f_cost: u32,
     parent: ?*const State,
-    allocator: Allocator,
 
     pub fn init(allocator: Allocator, size: usize) !*State {
         assert(size > 0);
@@ -22,20 +21,18 @@ pub const State = struct {
         const state = try allocator.create(State);
         errdefer allocator.destroy(state);
 
+        const tiles = try allocator.alloc(u8, size * size);
+        @memset(tiles, 0);
+
         state.* = .{
-            .tiles_storage = undefined,
-            .tiles = undefined,
+            .tiles = tiles,
             .size = size,
             .empty_pos = 0,
             .g_cost = 0,
             .h_cost = 0,
             .f_cost = 0,
             .parent = null,
-            .allocator = allocator,
         };
-
-        @memset(&state.tiles_storage, 0);
-        state.tiles = state.tiles_storage[0 .. size * size];
 
         return state;
     }
@@ -46,7 +43,7 @@ pub const State = struct {
         assert(tiles.len == size * size);
 
         const state = try init(allocator, size);
-        errdefer state.deinit();
+        errdefer state.deinit(allocator);
 
         @memcpy(state.tiles, tiles);
 
@@ -64,13 +61,14 @@ pub const State = struct {
         for (self.tiles) |tile| assert(tile < self.size * self.size);
     }
 
-    pub fn deinit(self: *State) void {
-        self.allocator.destroy(self);
+    pub fn deinit(self: *State, allocator: Allocator) void {
+        allocator.free(self.tiles);
+        allocator.destroy(self);
     }
 
-    pub fn clone(self: *const State) !*State {
-        const new_state = try init(self.allocator, self.size);
-        errdefer new_state.deinit();
+    pub fn clone(self: *const State, allocator: Allocator) !*State {
+        const new_state = try init(allocator, self.size);
+        errdefer new_state.deinit(allocator);
 
         @memcpy(new_state.tiles, self.tiles);
         new_state.empty_pos = self.empty_pos;
@@ -111,11 +109,60 @@ pub const State = struct {
     }
 };
 
+const JsonResponse = struct {
+    success: bool,
+    path: ?[][]const u8 = null,
+    statistics: ?struct {
+        states_selected: usize,
+        max_states_in_memory: usize,
+        solution_length: usize,
+    } = null,
+    @"error": ?[]const u8 = null,
+};
+
+pub fn stringify(allocator: Allocator, solution_opt: ?solver.Solution, error_msg: ?[]const u8) ![]u8 {
+    var allocating_writer = std.Io.Writer.Allocating.init(allocator);
+    defer allocating_writer.deinit();
+    const writer = &allocating_writer.writer;
+
+    if (solution_opt) |solution| {
+        try writer.writeAll("{\"success\":true,\"path\":[");
+
+        for (solution.path, 0..) |state, i| {
+            if (i > 0) try writer.writeAll(",");
+            try writer.writeAll("{\"tiles\":[");
+
+            for (state.tiles, 0..) |tile, j| {
+                if (j > 0) try writer.writeAll(",");
+                try writer.print("{d}", .{tile});
+            }
+
+            try writer.print(
+                "],\"g_cost\":{d},\"h_cost\":{d},\"f_cost\":{d}}}",
+                .{ state.g_cost, state.h_cost, state.f_cost },
+            );
+        }
+
+        try writer.print(
+            "],\"statistics\":{{\"states_selected\":{d},\"max_states_in_memory\":{d},\"solution_length\":{d}}},\"error\":null}}",
+            .{ solution.stats.states_selected, solution.stats.max_states_in_memory, solution.stats.solution_length },
+        );
+    } else {
+        try writer.print(
+            "{{\"success\":false,\"path\":null,\"statistics\":null,\"error\":\"{s}\"}}",
+            .{error_msg orelse "Unknown error"},
+        );
+    }
+
+    try writer.writeAll("\n");
+    return try allocating_writer.toOwnedSlice();
+}
+
 test "State.init - basic initialization" {
     const allocator = std.testing.allocator;
 
     const state = try State.init(allocator, 3);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 3), state.size);
     try std.testing.expectEqual(@as(usize, 9), state.tiles.len);
@@ -130,7 +177,7 @@ test "State.initFromTiles - valid puzzle" {
 
     const tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 3), state.size);
     try std.testing.expectEqual(@as(usize, 8), state.empty_pos);
@@ -149,12 +196,12 @@ test "State.clone - creates independent copy" {
 
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     state.setCosts(5, 10);
 
-    const cloned = try state.clone();
-    defer cloned.deinit();
+    const cloned = try state.clone(allocator);
+    defer cloned.deinit(allocator);
 
     try std.testing.expectEqual(state.size, cloned.size);
     try std.testing.expectEqual(state.empty_pos, cloned.empty_pos);
@@ -175,10 +222,10 @@ test "State.hash - same tiles produce same hash" {
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
 
     const state1 = try State.initFromTiles(allocator, 3, &tiles);
-    defer state1.deinit();
+    defer state1.deinit(allocator);
 
     const state2 = try State.initFromTiles(allocator, 3, &tiles);
-    defer state2.deinit();
+    defer state2.deinit(allocator);
 
     try std.testing.expectEqual(state1.hash(), state2.hash());
 }
@@ -190,10 +237,10 @@ test "State.hash - different tiles produce different hash" {
     const tiles2 = [_]u8{ 1, 2, 3, 4, 5, 0, 6, 7, 8 };
 
     const state1 = try State.initFromTiles(allocator, 3, &tiles1);
-    defer state1.deinit();
+    defer state1.deinit(allocator);
 
     const state2 = try State.initFromTiles(allocator, 3, &tiles2);
-    defer state2.deinit();
+    defer state2.deinit(allocator);
 
     try std.testing.expect(state1.hash() != state2.hash());
 }
@@ -203,10 +250,10 @@ test "State.eql - identical states are equal" {
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
 
     const state1 = try State.initFromTiles(allocator, 3, &tiles);
-    defer state1.deinit();
+    defer state1.deinit(allocator);
 
     const state2 = try State.initFromTiles(allocator, 3, &tiles);
-    defer state2.deinit();
+    defer state2.deinit(allocator);
 
     try std.testing.expect(state1.eql(state2));
     try std.testing.expect(state2.eql(state1));
@@ -219,10 +266,10 @@ test "State.eql - different states are not equal" {
     const tiles2 = [_]u8{ 1, 2, 3, 4, 5, 0, 6, 7, 8 };
 
     const state1 = try State.initFromTiles(allocator, 3, &tiles1);
-    defer state1.deinit();
+    defer state1.deinit(allocator);
 
     const state2 = try State.initFromTiles(allocator, 3, &tiles2);
-    defer state2.deinit();
+    defer state2.deinit(allocator);
 
     try std.testing.expect(!state1.eql(state2));
 }
@@ -232,21 +279,21 @@ test "State.setCosts - maintains f = g + h invariant" {
 
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     state.setCosts(10, 15);
 
     try std.testing.expectEqual(@as(u32, 10), state.g_cost);
     try std.testing.expectEqual(@as(u32, 15), state.h_cost);
     try std.testing.expectEqual(@as(u32, 25), state.f_cost);
-    state.validateInvariants();
+    state.validateInvariants(allocator);
 }
 
 test "State.getCoords - correct coordinate conversion" {
     const allocator = std.testing.allocator;
 
     const state = try State.init(allocator, 3);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     const coords0 = state.getCoords(0);
     try std.testing.expectEqual(@as(usize, 0), coords0.row);
@@ -265,7 +312,7 @@ test "State.getPos - correct position conversion" {
     const allocator = std.testing.allocator;
 
     const state = try State.init(allocator, 3);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 0), state.getPos(0, 0));
     try std.testing.expectEqual(@as(usize, 4), state.getPos(1, 1));
@@ -277,7 +324,7 @@ test "State.getPos and getCoords - are inverse operations" {
     const allocator = std.testing.allocator;
 
     const state = try State.init(allocator, 3);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     for (0..9) |pos| {
         const coords = state.getCoords(pos);
@@ -290,6 +337,6 @@ test "State.validateInvariants - validates correctly" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
     state.validateInvariants();
 }

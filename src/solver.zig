@@ -36,7 +36,7 @@ pub const Solution = struct {
         var iter = self.closed_set.keyIterator();
         while (iter.next()) |state_ptr| {
             const state: *State = @constCast(state_ptr.*);
-            state.deinit();
+            state.deinit(self.allocator);
         }
         self.closed_set.deinit();
         self.allocator.free(self.path);
@@ -89,7 +89,7 @@ pub fn solve(
         var closed_iter = closed_set.keyIterator();
         while (closed_iter.next()) |state_ptr| {
             const state: *State = @constCast(state_ptr.*);
-            state.deinit();
+            state.deinit(allocator);
         }
         closed_set.deinit();
     }
@@ -97,7 +97,7 @@ pub fn solve(
     var open_set = std.PriorityQueue(PQNode, void, PQNode.compareFn).init(allocator, {});
     defer {
         while (open_set.removeOrNull()) |node| {
-            node.state.deinit();
+            node.state.deinit(allocator);
         }
         open_set.deinit();
     }
@@ -116,7 +116,7 @@ pub fn solve(
         stats.states_selected += 1;
 
         if (closed_set.contains(current_state)) {
-            current_state.deinit();
+            current_state.deinit(allocator);
             continue;
         }
 
@@ -137,7 +137,7 @@ pub fn solve(
 
         for (successors) |successor| {
             if (closed_set.contains(successor)) {
-                successor.deinit();
+                successor.deinit(allocator);
                 continue;
             }
             try open_set.add(.{ .state = successor });
@@ -148,7 +148,7 @@ pub fn solve(
     var closed_iter = closed_set.keyIterator();
     while (closed_iter.next()) |state_ptr| {
         const state: *State = @constCast(state_ptr.*);
-        state.deinit();
+        state.deinit(allocator);
     }
     closed_set.deinit();
 
@@ -167,7 +167,7 @@ pub fn generateSuccessors(
 
     var successors: std.ArrayList(*State) = .empty;
     errdefer {
-        for (successors.items) |successor| successor.deinit();
+        for (successors.items) |successor| successor.deinit(allocator);
         successors.deinit(allocator);
     }
 
@@ -194,8 +194,8 @@ pub fn generateSuccessors(
         const new_empty_pos = @as(usize, @intCast(new_row)) * current.size + @as(usize, @intCast(new_col));
         assert(new_empty_pos < current.tiles.len);
 
-        const successor = try current.clone();
-        errdefer successor.deinit();
+        const successor = try current.clone(allocator);
+        errdefer successor.deinit(allocator);
 
         successor.tiles[current.empty_pos] = successor.tiles[new_empty_pos];
         successor.tiles[new_empty_pos] = 0;
