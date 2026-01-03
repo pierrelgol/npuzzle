@@ -185,7 +185,7 @@ test "GoalLookup - basic initialization" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var lookup = try GoalLookup.init(allocator, goal);
     defer lookup.deinit();
@@ -200,7 +200,7 @@ test "GoalLookup - snail pattern" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 8, 0, 4, 7, 6, 5 };
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var lookup = try GoalLookup.init(allocator, goal);
     defer lookup.deinit();
@@ -215,7 +215,7 @@ test "Manhattan distance - solved state is 0" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
     var lookup = try GoalLookup.init(allocator, state);
     defer lookup.deinit();
 
@@ -227,9 +227,9 @@ test "Manhattan distance - one move away" {
     const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const curr_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 0, 8 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
     const state = try State.initFromTiles(allocator, 3, &curr_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
     var lookup = try GoalLookup.init(allocator, goal);
     defer lookup.deinit();
 
@@ -241,9 +241,9 @@ test "Misplaced tiles - counts correctly" {
     const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const curr_tiles = [_]u8{ 1, 2, 3, 4, 0, 6, 7, 5, 8 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
     const state = try State.initFromTiles(allocator, 3, &curr_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
     var lookup = try GoalLookup.init(allocator, goal);
     defer lookup.deinit();
 
@@ -255,9 +255,9 @@ test "Linear conflict - detects row conflicts" {
     const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const curr_tiles = [_]u8{ 2, 1, 3, 4, 5, 6, 7, 8, 0 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
     const state = try State.initFromTiles(allocator, 3, &curr_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
     var lookup = try GoalLookup.init(allocator, goal);
     defer lookup.deinit();
 

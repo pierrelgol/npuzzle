@@ -286,7 +286,7 @@ test "State.setCosts - maintains f = g + h invariant" {
     try std.testing.expectEqual(@as(u32, 10), state.g_cost);
     try std.testing.expectEqual(@as(u32, 15), state.h_cost);
     try std.testing.expectEqual(@as(u32, 25), state.f_cost);
-    state.validateInvariants(allocator);
+    state.validateInvariants();
 }
 
 test "State.getCoords - correct coordinate conversion" {

@@ -80,7 +80,7 @@ test "countInversions - solved state has 0 inversions" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 0), countInversions(state));
 }
@@ -89,7 +89,7 @@ test "countInversions - one inversion" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 2, 1, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 1), countInversions(state));
 }
@@ -98,7 +98,7 @@ test "countInversions - multiple inversions" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 3, 2, 1, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 3), countInversions(state));
 }
@@ -107,7 +107,7 @@ test "countInversions - completely reversed" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 8, 7, 6, 5, 4, 3, 2, 1, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 28), countInversions(state));
 }
@@ -118,10 +118,10 @@ test "countInversions - empty tile doesn't affect inversions" {
     const tiles2 = [_]u8{ 0, 2, 1, 3, 4, 5, 6, 7, 8 };
 
     const state1 = try State.initFromTiles(allocator, 3, &tiles1);
-    defer state1.deinit();
+    defer state1.deinit(allocator);
 
     const state2 = try State.initFromTiles(allocator, 3, &tiles2);
-    defer state2.deinit();
+    defer state2.deinit(allocator);
 
     try std.testing.expectEqual(countInversions(state1), countInversions(state2));
 }
@@ -130,7 +130,7 @@ test "isSolvable - 3x3 solved state is solvable" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expect(isSolvable(state, state));
 }
@@ -139,11 +139,11 @@ test "isSolvable - 3x3 solvable puzzle" {
     const allocator = std.testing.allocator;
     const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     const state_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 0, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &state_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expect(isSolvable(state, goal));
 }
@@ -152,11 +152,11 @@ test "isSolvable - 3x3 unsolvable puzzle (odd inversion)" {
     const allocator = std.testing.allocator;
     const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     const state_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 8, 7, 0 };
     const state = try State.initFromTiles(allocator, 3, &state_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 0), countInversions(goal));
     try std.testing.expectEqual(@as(usize, 1), countInversions(state));
@@ -167,11 +167,11 @@ test "isSolvable - 3x3 snail goal pattern solvable" {
     const allocator = std.testing.allocator;
     const goal_tiles = [_]u8{ 1, 2, 3, 8, 0, 4, 7, 6, 5 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     const state_tiles = [_]u8{ 1, 2, 3, 8, 4, 0, 7, 6, 5 };
     const state = try State.initFromTiles(allocator, 3, &state_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expect(isSolvable(state, goal));
 }
@@ -185,7 +185,7 @@ test "isSolvable - 4x4 even puzzle solvable" {
         13, 14, 15, 0,
     };
     const goal = try State.initFromTiles(allocator, 4, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     const state_tiles = [_]u8{
         1,  2,  3,  4,
@@ -194,7 +194,7 @@ test "isSolvable - 4x4 even puzzle solvable" {
         13, 14, 0,  15,
     };
     const state = try State.initFromTiles(allocator, 4, &state_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expect(isSolvable(state, goal));
 }
@@ -208,7 +208,7 @@ test "isSolvable - 4x4 even puzzle unsolvable" {
         13, 14, 15, 0,
     };
     const goal = try State.initFromTiles(allocator, 4, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     const state_tiles = [_]u8{
         1,  2,  3,  4,
@@ -217,7 +217,7 @@ test "isSolvable - 4x4 even puzzle unsolvable" {
         13, 15, 14, 0,
     };
     const state = try State.initFromTiles(allocator, 4, &state_tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expect(!isSolvable(state, goal));
 }
@@ -226,7 +226,7 @@ test "validatePuzzle - valid puzzle passes" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try validatePuzzle(state);
 }
@@ -235,7 +235,7 @@ test "validatePuzzle - duplicate tile fails" {
     const allocator = std.testing.allocator;
     const tiles = [_]u8{ 1, 1, 3, 4, 5, 6, 7, 8, 0 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectError(error.DuplicateTile, validatePuzzle(state));
 }
@@ -243,7 +243,7 @@ test "validatePuzzle - duplicate tile fails" {
 test "validatePuzzle - tile out of range fails" {
     const allocator = std.testing.allocator;
     const state = try State.init(allocator, 3);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     @memset(state.tiles, 0);
     state.tiles[0] = 99;
@@ -254,7 +254,7 @@ test "validatePuzzle - tile out of range fails" {
 test "validatePuzzle - missing tile fails" {
     const allocator = std.testing.allocator;
     const state = try State.init(allocator, 3);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     const tiles = [_]u8{ 0, 1, 2, 3, 4, 6, 7, 8, 8 };
     @memcpy(state.tiles, &tiles);
@@ -266,15 +266,15 @@ test "Solvability invariants - swapping tiles changes parity" {
     const allocator = std.testing.allocator;
     const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     const solvable_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const solvable_state = try State.initFromTiles(allocator, 3, &solvable_tiles);
-    defer solvable_state.deinit();
+    defer solvable_state.deinit(allocator);
 
     const unsolvable_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 8, 7, 0 };
     const unsolvable_state = try State.initFromTiles(allocator, 3, &unsolvable_tiles);
-    defer unsolvable_state.deinit();
+    defer unsolvable_state.deinit(allocator);
 
     try std.testing.expect(isSolvable(solvable_state, goal));
     try std.testing.expect(!isSolvable(unsolvable_state, goal));

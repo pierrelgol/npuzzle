@@ -84,6 +84,11 @@ pub fn solve(
 
     var stats = Statistics.init();
 
+    // Track best g-cost for each state to enable relaxation
+    var best_g = std.HashMap(*const State, u32, StateHashContext, 80).init(allocator);
+    defer best_g.deinit();
+
+    // Keep closed_set for memory management only, not for correctness
     var closed_set = std.HashMap(*const State, void, StateHashContext, 80).init(allocator);
     errdefer {
         var closed_iter = closed_set.keyIterator();
@@ -109,15 +114,20 @@ pub fn solve(
     initial.validateInvariants();
 
     try open_set.add(.{ .state = initial });
+    try best_g.put(initial, 0);
     stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());
 
     while (open_set.removeOrNull()) |node| {
         const current_state = node.state;
         stats.states_selected += 1;
 
-        if (closed_set.contains(current_state)) {
-            current_state.deinit(allocator);
-            continue;
+        // Check if we've already found a better path to this state (relaxation)
+        if (best_g.get(current_state)) |known_best_g| {
+            if (current_state.g_cost > known_best_g) {
+                // This state has been reached via a better path already, skip it
+                current_state.deinit(allocator);
+                continue;
+            }
         }
 
         current_state.validateInvariants();
@@ -136,10 +146,15 @@ pub fn solve(
         defer allocator.free(successors);
 
         for (successors) |successor| {
-            if (closed_set.contains(successor)) {
-                successor.deinit(allocator);
-                continue;
+            // Relaxation: only add if this is a better path
+            if (best_g.get(successor)) |existing_g| {
+                if (successor.g_cost >= existing_g) {
+                    successor.deinit(allocator);
+                    continue;
+                }
             }
+            // Update best known g-cost for this state
+            try best_g.put(successor, successor.g_cost);
             try open_set.add(.{ .state = successor });
         }
         stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());
@@ -269,7 +284,7 @@ test "solve - already solved puzzle" {
 
     const initial = try State.initFromTiles(allocator, 3, &tiles);
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -292,7 +307,7 @@ test "solve - one move away" {
 
     const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -317,7 +332,7 @@ test "solve - two moves away" {
 
     const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -339,7 +354,7 @@ test "solve - tracks statistics correctly" {
 
     const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -362,7 +377,7 @@ test "solve - uniform cost search (h=0) still solves optimally" {
 
     const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -382,7 +397,7 @@ test "solve - greedy best-first search finds a solution" {
 
     const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
     const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -399,10 +414,10 @@ test "generateSuccessors - corner position has 2 successors" {
 
     const tiles = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -415,7 +430,7 @@ test "generateSuccessors - corner position has 2 successors" {
         .astar,
     );
     defer {
-        for (successors) |s| s.deinit();
+        for (successors) |s| s.deinit(allocator);
         allocator.free(successors);
     }
 
@@ -427,10 +442,10 @@ test "generateSuccessors - edge position has 3 successors" {
 
     const tiles = [_]u8{ 1, 0, 2, 3, 4, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -443,7 +458,7 @@ test "generateSuccessors - edge position has 3 successors" {
         .astar,
     );
     defer {
-        for (successors) |s| s.deinit();
+        for (successors) |s| s.deinit(allocator);
         allocator.free(successors);
     }
 
@@ -455,10 +470,10 @@ test "generateSuccessors - center position has 4 successors" {
 
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -471,7 +486,7 @@ test "generateSuccessors - center position has 4 successors" {
         .astar,
     );
     defer {
-        for (successors) |s| s.deinit();
+        for (successors) |s| s.deinit(allocator);
         allocator.free(successors);
     }
 
@@ -483,12 +498,12 @@ test "generateSuccessors - all successors have incremented g_cost" {
 
     const tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 6, 7, 8 };
     const state = try State.initFromTiles(allocator, 3, &tiles);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     state.g_cost = 5;
 
     const goal = try State.initFromTiles(allocator, 3, &tiles);
-    defer goal.deinit();
+    defer goal.deinit(allocator);
 
     var goal_lookup = try GoalLookup.init(allocator, goal);
     defer goal_lookup.deinit();
@@ -501,7 +516,7 @@ test "generateSuccessors - all successors have incremented g_cost" {
         .astar,
     );
     defer {
-        for (successors) |s| s.deinit();
+        for (successors) |s| s.deinit(allocator);
         allocator.free(successors);
     }
 
@@ -516,19 +531,19 @@ test "reconstructPath - builds correct path" {
 
     const tiles1 = [_]u8{ 1, 2, 3, 4, 5, 6, 0, 7, 8 };
     const state1 = try State.initFromTiles(allocator, 3, &tiles1);
-    defer state1.deinit();
+    defer state1.deinit(allocator);
     state1.g_cost = 0;
     state1.parent = null;
 
     const tiles2 = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 0, 8 };
     const state2 = try State.initFromTiles(allocator, 3, &tiles2);
-    defer state2.deinit();
+    defer state2.deinit(allocator);
     state2.g_cost = 1;
     state2.parent = state1;
 
     const tiles3 = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
     const state3 = try State.initFromTiles(allocator, 3, &tiles3);
-    defer state3.deinit();
+    defer state3.deinit(allocator);
     state3.g_cost = 2;
     state3.parent = state2;
 

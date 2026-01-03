@@ -38,6 +38,16 @@ pub fn solveParallel(
     pooled_initial.f_cost = computeFCost(mode, pooled_initial.g_cost, pooled_initial.h_cost);
     pooled_initial.parent = null;
     pooled_initial.validateInvariants();
+
+    // Initialize best_g for the initial state
+    const initial_shard_index = pooled_initial.hash() % SHARD_COUNT;
+    {
+        var initial_best_g_shard = &shared_state.best_g_shards[initial_shard_index];
+        initial_best_g_shard.mutex.lock();
+        defer initial_best_g_shard.mutex.unlock();
+        try initial_best_g_shard.map.put(pooled_initial, 0);
+    }
+
     try shared_state.addToOpen(0, pooled_initial, 0);
 
     const worker_threads = try allocator.alloc(std.Thread, thread_count);
@@ -154,10 +164,24 @@ const ClosedShard = struct {
     }
 };
 
+const BestGShard = struct {
+    map: std.HashMap(*const State, u32, StateHashContext, 80),
+    mutex: std.Thread.Mutex = .{},
+
+    fn init(allocator: std.mem.Allocator) BestGShard {
+        return .{ .map = std.HashMap(*const State, u32, StateHashContext, 80).init(allocator) };
+    }
+
+    fn deinit(self: *BestGShard) void {
+        self.map.deinit();
+    }
+};
+
 const Shared = struct {
     allocator: std.mem.Allocator,
     queues: []ThreadQueue,
     closed_shards: [SHARD_COUNT]ClosedShard,
+    best_g_shards: [SHARD_COUNT]BestGShard,
     closed_count: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     states_selected: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
     max_states: std.atomic.Value(usize) = std.atomic.Value(usize).init(0),
@@ -178,6 +202,7 @@ const Shared = struct {
             .allocator = allocator,
             .queues = queues,
             .closed_shards = .{ClosedShard.init(allocator)} ** SHARD_COUNT,
+            .best_g_shards = .{BestGShard.init(allocator)} ** SHARD_COUNT,
             .min_f_values = min_f_values,
         };
     }
@@ -187,6 +212,7 @@ const Shared = struct {
         self.allocator.free(self.queues);
         self.allocator.free(self.min_f_values);
         for (&self.closed_shards) |*s| s.deinit();
+        for (&self.best_g_shards) |*s| s.deinit();
     }
 
     fn addToOpen(self: *Shared, queue_index: usize, state: *State, owner_index: usize) !void {
@@ -310,8 +336,28 @@ fn worker(
             continue;
         }
 
-        var should_skip = false;
+        // Relaxation: check if we've found a better path to this state
         const shard_index = node.state.hash() % SHARD_COUNT;
+        var best_g_shard = &shared.best_g_shards[shard_index];
+        best_g_shard.mutex.lock();
+        const should_skip_due_to_better_path = blk: {
+            if (best_g_shard.map.get(node.state)) |known_best_g| {
+                if (node.state.g_cost > known_best_g) {
+                    best_g_shard.mutex.unlock();
+                    break :blk true;
+                }
+            }
+            best_g_shard.mutex.unlock();
+            break :blk false;
+        };
+
+        if (should_skip_due_to_better_path) {
+            shared.releaseToPool(node.owner_index, node.state);
+            continue;
+        }
+
+        // Add to closed set for memory management
+        var should_skip = false;
         var shard = &shared.closed_shards[shard_index];
         shard.mutex.lock();
         if (shard.map.contains(node.state)) {
@@ -337,8 +383,19 @@ fn worker(
             if (goal_cost <= previous_best) {
                 _ = shared.best_state.swap(node.state, .seq_cst);
             }
-            shared.min_f_values[worker_index].store(std.math.maxInt(u32), .seq_cst);
-            if (shared.best_cost.load(.seq_cst) == goal_cost) {
+
+            // Safe stop rule: only stop if best_cost <= min(all f-values)
+            // This ensures we don't miss a better solution in another thread's queue
+            const current_best = shared.best_cost.load(.seq_cst);
+            var min_f_in_open: u32 = std.math.maxInt(u32);
+            for (shared.min_f_values) |*min_f_value| {
+                const f = min_f_value.load(.seq_cst);
+                if (f < min_f_in_open) {
+                    min_f_in_open = f;
+                }
+            }
+            // If best solution cost is <= all remaining f-values, we can stop
+            if (current_best <= min_f_in_open) {
                 shared.stop_flag.store(true, .seq_cst);
             }
             continue;
@@ -362,13 +419,29 @@ fn worker(
                 continue;
             }
 
+            // Relaxation: check if this is a better path to this state
             const successor_shard_index = successor_base.hash() % SHARD_COUNT;
-            var successor_shard = &shared.closed_shards[successor_shard_index];
-            successor_shard.mutex.lock();
-            const is_already_closed = successor_shard.map.contains(successor_base);
-            successor_shard.mutex.unlock();
+            var successor_best_g_shard = &shared.best_g_shards[successor_shard_index];
+            successor_best_g_shard.mutex.lock();
+            defer successor_best_g_shard.mutex.unlock();
 
-            if (is_already_closed) {
+            const should_add = blk: {
+                const gop = successor_best_g_shard.map.getOrPut(successor_base) catch {
+                    break :blk false;
+                };
+
+                if (gop.found_existing) {
+                    // State already in best_g, check if this is a better path
+                    if (successor_base.g_cost >= gop.value_ptr.*) {
+                        break :blk false;
+                    }
+                }
+                // Update to the better g_cost
+                gop.value_ptr.* = successor_base.g_cost;
+                break :blk true;
+            };
+
+            if (!should_add) {
                 successor_base.deinit(shared.allocator);
                 continue;
             }

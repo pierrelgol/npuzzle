@@ -15,7 +15,6 @@ const solver = @import("solver.zig");
 const SearchMode = solver.SearchMode;
 const solver_parallel = @import("solver_parallel.zig");
 const solvability = @import("solvability.zig");
-const io = @import("io.zig");
 const gen = @import("gen.zig");
 const testing = std.testing;
 
@@ -25,7 +24,6 @@ comptime {
     testing.refAllDecls(solver);
     testing.refAllDecls(solver_parallel);
     testing.refAllDecls(solvability);
-    testing.refAllDecls(io);
     testing.refAllDecls(gen);
 }
 
@@ -111,7 +109,9 @@ fn puzzleToState(allocator: std.mem.Allocator, puzzle: *const gen.Puzzle) !*Stat
 }
 
 pub fn main() !void {
-    const allocator = heap.smp_allocator;
+    var gpa_instance: heap.DebugAllocator(.{}) = .init;
+    defer _ = gpa_instance.deinit();
+    const allocator = gpa_instance.allocator();
 
     var threaded: Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
@@ -222,7 +222,7 @@ test "puzzleToState - converts correctly" {
     puzzle.generateSnail();
 
     const state = try puzzleToState(allocator, &puzzle);
-    defer state.deinit();
+    defer state.deinit(allocator);
 
     try std.testing.expectEqual(@as(usize, 3), state.size);
     try std.testing.expectEqual(@as(usize, 9), state.tiles.len);
