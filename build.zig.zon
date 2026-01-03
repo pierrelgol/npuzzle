@@ -2,7 +2,7 @@
     .name = .npuzzle,
     .version = "0.0.0",
     .fingerprint = 0xd58196ba05b8d8f3,
-    .minimum_zig_version = "0.16.0-dev.1657+985a3565c",
+    .minimum_zig_version = "0.16.0-dev.1890+2bd02883c",
     .dependencies = .{
     },
     .paths = .{
