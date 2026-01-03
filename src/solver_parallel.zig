@@ -333,7 +333,6 @@ fn worker(
 
         const current_best_cost = shared.best_cost.load(.seq_cst);
         if (current_best_cost != std.math.maxInt(u32) and node.state.f_cost >= current_best_cost) {
-            shared.releaseToPool(node.owner_index, node.state);
             continue;
         }
 
@@ -353,7 +352,6 @@ fn worker(
         };
 
         if (should_skip_due_to_better_path) {
-            shared.releaseToPool(node.owner_index, node.state);
             continue;
         }
 
@@ -374,10 +372,8 @@ fn worker(
         shard.mutex.unlock();
 
         if (should_skip) {
-            shared.releaseToPool(node.owner_index, node.state);
             continue;
         }
-
         if (node.state.eql(goal)) {
             const goal_cost = node.state.g_cost;
             const previous_best = shared.best_cost.fetchMin(goal_cost, .seq_cst);
@@ -420,33 +416,6 @@ fn worker(
                 continue;
             }
 
-            // Relaxation: check if this is a better path to this state
-            const successor_shard_index = successor_base.hash() % SHARD_COUNT;
-            var successor_best_g_shard = &shared.best_g_shards[successor_shard_index];
-            successor_best_g_shard.mutex.lock();
-            defer successor_best_g_shard.mutex.unlock();
-
-            const should_add = blk: {
-                const gop = successor_best_g_shard.map.getOrPut(successor_base) catch {
-                    break :blk false;
-                };
-
-                if (gop.found_existing) {
-                    // State already in best_g, check if this is a better path
-                    if (successor_base.g_cost >= gop.value_ptr.*) {
-                        break :blk false;
-                    }
-                }
-                // Update to the better g_cost
-                gop.value_ptr.* = successor_base.g_cost;
-                break :blk true;
-            };
-
-            if (!should_add) {
-                successor_base.deinit(shared.allocator);
-                continue;
-            }
-
             var my_queue = &shared.queues[worker_index];
             my_queue.mutex.lock();
             const pooled_successor = my_queue.memory_pool.create(my_queue.arena.allocator()) catch {
@@ -464,6 +433,34 @@ fn worker(
             pooled_successor.* = successor_base.*;
             pooled_successor.tiles = pooled_tiles;
             successor_base.deinit(shared.allocator);
+
+            // Now check relaxation using the pooled copy
+            const successor_shard_index = pooled_successor.hash() % SHARD_COUNT;
+            var successor_best_g_shard = &shared.best_g_shards[successor_shard_index];
+            successor_best_g_shard.mutex.lock();
+            defer successor_best_g_shard.mutex.unlock();
+
+            const should_add = blk: {
+                const gop = successor_best_g_shard.map.getOrPut(pooled_successor) catch {
+                    break :blk false;
+                };
+
+                if (gop.found_existing) {
+                    // State already in best_g, check if this is a better path
+                    if (pooled_successor.g_cost >= gop.value_ptr.*) {
+                        break :blk false;
+                    }
+                }
+                // Update to the better g_cost
+                gop.value_ptr.* = pooled_successor.g_cost;
+                break :blk true;
+            };
+
+            if (!should_add) {
+                my_queue.memory_pool.destroy(pooled_successor);
+                my_queue.mutex.unlock();
+                continue;
+            }
 
             my_queue.priority_queue.add(.{ .state = pooled_successor, .owner_index = worker_index }) catch {
                 my_queue.memory_pool.destroy(pooled_successor);

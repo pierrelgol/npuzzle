@@ -82,7 +82,11 @@ pub const State = struct {
     }
 
     pub fn hash(self: *const State) u64 {
-        return std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(self.tiles));
+        var hasher = std.hash.Wyhash.init(0);
+        hasher.update(std.mem.asBytes(&self.size));
+        hasher.update(std.mem.asBytes(&self.empty_pos));
+        hasher.update(std.mem.sliceAsBytes(self.tiles));
+        return hasher.final();
     }
 
     pub fn eql(self: *const State, other: *const State) bool {

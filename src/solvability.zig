@@ -3,6 +3,32 @@ const assert = std.debug.assert;
 const state_mod = @import("state.zig");
 const State = state_mod.State;
 
+pub fn isSolvable(state: *const State, goal: *const State) bool {
+    assert(state.size == goal.size);
+    assert(state.size > 0);
+
+    const state_inversions = countInversions(state);
+    const goal_inversions = countInversions(goal);
+
+    const is_odd_size = state.size % 2 == 1;
+
+    if (is_odd_size) {
+        const state_parity = state_inversions % 2;
+        const goal_parity = goal_inversions % 2;
+        return state_parity == goal_parity;
+    }
+
+    const state_empty_row = state.empty_pos / state.size;
+    const goal_empty_row = goal.empty_pos / goal.size;
+    const state_empty_row_from_bottom = state.size - 1 - state_empty_row;
+    const goal_empty_row_from_bottom = state.size - 1 - goal_empty_row;
+
+    const state_parity = (state_inversions + state_empty_row_from_bottom) % 2;
+    const goal_parity = (goal_inversions + goal_empty_row_from_bottom) % 2;
+
+    return state_parity == goal_parity;
+}
+
 pub fn countInversions(state: *const State) usize {
     assert(state.size > 0);
 

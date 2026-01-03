@@ -58,7 +58,7 @@ def main(argc: int, argv: List[str]) -> int:
     print(puzzle.grid)
     try:
         result = subprocess.run(
-            ["./zig-out/bin/npuzzle", "3", *map(str, puzzle.grid)],
+            ["./zig-out/bin/npuzzle", str(args.generate), *map(str, puzzle.grid)],
             stderr=True,
             text=True,
         )

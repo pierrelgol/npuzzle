@@ -123,13 +123,11 @@ pub fn solve(
     while (open_set.removeOrNull()) |node| {
         const current_state = node.state;
         stats.states_selected += 1;
-        
+
         // Invariant: State g_cost should be non-negative
         assert(current_state.g_cost >= 0);
-        // Invariant: State f_cost should be consistent with g_cost + h_cost (for A* and greedy)
-        if (mode != .uniform_cost) {
-            assert(current_state.f_cost == current_state.g_cost + current_state.h_cost);
-        }
+        // Invariant: State f_cost should be consistent with the search mode
+        assert(current_state.f_cost == computeFCost(mode, current_state.g_cost, current_state.h_cost));
 
         // Check if we've already found a better path to this state (relaxation)
         if (best_g.get(current_state)) |known_best_g| {
@@ -143,7 +141,7 @@ pub fn solve(
             // Invariant: Current state has equal or better g_cost than previously known
             assert(current_state.g_cost <= known_best_g);
         }
-        
+
         // Update best_g for this state now that we're processing it
         const current_gop = try best_g.getOrPut(current_state);
         if (current_gop.found_existing) {
@@ -205,7 +203,7 @@ pub fn solve(
             // Invariant: Successor should be a valid state with proper g_cost
             assert(successor.g_cost == current_state.g_cost + 1);
             successor.validateInvariants();
-            
+
             // Relaxation: check if we already have this state with a better or equal g-cost
             if (best_g.get(successor)) |existing_g| {
                 if (successor.g_cost >= existing_g) {
