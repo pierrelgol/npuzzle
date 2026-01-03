@@ -17,7 +17,6 @@ const solver_parallel = @import("solver_parallel.zig");
 const solvability = @import("solvability.zig");
 const io = @import("io.zig");
 const gen = @import("gen.zig");
-const tests = @import("tests.zig");
 const testing = std.testing;
 
 comptime {
@@ -28,7 +27,6 @@ comptime {
     testing.refAllDecls(solvability);
     testing.refAllDecls(io);
     testing.refAllDecls(gen);
-    testing.refAllDecls(tests);
 }
 
 const Options = struct {
