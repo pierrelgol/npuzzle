@@ -45,7 +45,8 @@ pub fn solveParallel(
         var initial_best_g_shard = &shared_state.best_g_shards[initial_shard_index];
         initial_best_g_shard.mutex.lock();
         defer initial_best_g_shard.mutex.unlock();
-        try initial_best_g_shard.map.put(pooled_initial, 0);
+        const initial_gop = try initial_best_g_shard.map.getOrPut(pooled_initial);
+        initial_gop.value_ptr.* = undefined;
     }
 
     try shared_state.addToOpen(0, pooled_initial, 0);

@@ -1,7 +1,7 @@
 import argparse
+import subprocess
 import sys
 from pathlib import Path
-from random import choices
 from typing import List
 
 from cli.constants import HEURISTIC_CHOICES, SEARCH_MODES
@@ -14,11 +14,11 @@ def main(argc: int, argv: List[str]) -> int:
     parser.add_argument("--input", type=Path, help="name of the file", default=None)
     parser.add_argument("-t", "--thread", type=int, help="thread number", default=1)
     parser.add_argument(
-        "-s",
-        "--solvable",
-        type=bool,
-        help="whether the puzzle should be solvable",
-        default=True,
+        "-u",
+        "--unsolvable",
+        action="store_true",
+        default=False,
+        help="Forces generation of an unsolvable puzzle",
     )
     parser.add_argument(
         "--heuristic",
@@ -27,6 +27,7 @@ def main(argc: int, argv: List[str]) -> int:
         help="heuristic function selection",
     )
     parser.add_argument(
+        "-s",
         "--search",
         choices=SEARCH_MODES,
         default=SEARCH_MODES[0],
@@ -40,11 +41,11 @@ def main(argc: int, argv: List[str]) -> int:
     )
 
     args = parser.parse_args(argv[1:])
-    print(f"{args.input}")
 
-    is_solvable = bool(args.solvable)
+    is_solvable = True if not args.unsolvable else False
+
     try:
-        puzzle = Puzzle(args.generate)
+        puzzle = Puzzle(args.generate, solvable=is_solvable)
     except (InvalidSize, Exception) as e:
         print(f"Error: {e}", file=sys.stderr)
         exit(1)
@@ -54,6 +55,18 @@ def main(argc: int, argv: List[str]) -> int:
     puzzle.ensure_solvability(is_solvable)
 
     print(puzzle)
+    print(puzzle.grid)
+    try:
+        result = subprocess.run(
+            ["./zig-out/bin/npuzzle", "3", *map(str, puzzle.grid)],
+            stderr=True,
+            text=True,
+        )
+    except Exception as e:
+        print(f"Error Pierre : {e}")
+        exit(1)
+    output = result.stdout
+    print(output)
     return 0
 
 

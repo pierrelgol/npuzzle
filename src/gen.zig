@@ -114,19 +114,6 @@ pub const Puzzle = struct {
         }
     }
 
-    pub fn ensureSolvability(self: *Puzzle, should_be_solvable: bool) void {
-        if (should_be_solvable) return;
-
-        const last_index = self.grid.len - 1;
-        const empty_at_start = self.grid[0] == 0 or self.grid[1] == 0;
-
-        if (empty_at_start) {
-            std.mem.swap(u8, &self.grid[last_index], &self.grid[last_index - 1]);
-        } else {
-            std.mem.swap(u8, &self.grid[0], &self.grid[1]);
-        }
-    }
-
     pub fn print(self: Puzzle, writer: *Io.Writer, solvable: bool) !void {
         var buf: [256]u8 = undefined;
 

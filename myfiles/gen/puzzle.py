@@ -76,7 +76,23 @@ class Puzzle:
 
     def shuffle(self, iterations: int) -> None:
         for _ in range(iterations):
-            rd.shuffle(self.grid)
+
+            idx = self.grid.index(0)
+            
+
+            possible_swaps = []
+            if idx % self.size > 0:
+                possible_swaps.append(idx - 1)
+            if idx % self.size < self.size - 1:
+                possible_swaps.append(idx + 1)
+            if idx // self.size > 0:
+                possible_swaps.append(idx - self.size)
+            if idx // self.size < self.size - 1:
+                possible_swaps.append(idx + self.size)
+            
+            swap_idx = rd.choice(possible_swaps)
+            self.grid[idx] = self.grid[swap_idx]
+            self.grid[swap_idx] = 0
 
     def ensure_solvability(self, should_be_solvable: bool) -> None:
         if should_be_solvable:

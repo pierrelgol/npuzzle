@@ -114,47 +114,113 @@ pub fn solve(
     initial.validateInvariants();
 
     try open_set.add(.{ .state = initial });
-    try best_g.put(initial, 0);
+    const initial_gop = try best_g.getOrPut(initial);
+    // Invariant: Initial state should never exist in best_g yet
+    assert(!initial_gop.found_existing);
+    initial_gop.value_ptr.* = 0;
     stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());
 
     while (open_set.removeOrNull()) |node| {
         const current_state = node.state;
         stats.states_selected += 1;
+        
+        // Invariant: State g_cost should be non-negative
+        assert(current_state.g_cost >= 0);
+        // Invariant: State f_cost should be consistent with g_cost + h_cost (for A* and greedy)
+        if (mode != .uniform_cost) {
+            assert(current_state.f_cost == current_state.g_cost + current_state.h_cost);
+        }
 
         // Check if we've already found a better path to this state (relaxation)
         if (best_g.get(current_state)) |known_best_g| {
             if (current_state.g_cost > known_best_g) {
+                // Invariant: If skipping, the known path must be strictly better
+                assert(known_best_g < current_state.g_cost);
                 // This state has been reached via a better path already, skip it
                 current_state.deinit(allocator);
                 continue;
             }
+            // Invariant: Current state has equal or better g_cost than previously known
+            assert(current_state.g_cost <= known_best_g);
         }
+        
+        // Update best_g for this state now that we're processing it
+        const current_gop = try best_g.getOrPut(current_state);
+        if (current_gop.found_existing) {
+            // Invariant: If found_existing, we must have equal or better g_cost
+            assert(current_state.g_cost <= current_gop.value_ptr.*);
+            // Replace the old key with the new one (better or equal path)
+            // The old key will be cleaned up when we process closed_set
+            current_gop.key_ptr.* = current_state;
+        }
+        current_gop.value_ptr.* = current_state.g_cost;
+        // Invariant: best_g now contains current_state with its g_cost
+        assert(best_g.get(current_state).? == current_state.g_cost);
 
         current_state.validateInvariants();
 
         if (current_state.eql(goal)) {
-            try closed_set.put(current_state, {});
+            const goal_gop = try closed_set.getOrPut(current_state);
+            if (goal_gop.found_existing) {
+                // Invariant: Goal state should be equal by hash and eql
+                assert(goal_gop.key_ptr.*.hash() == current_state.hash());
+                assert(goal_gop.key_ptr.*.eql(current_state));
+                // Found a duplicate - need to clean up the old one and use the new one
+                const old_state: *State = @constCast(goal_gop.key_ptr.*);
+                old_state.deinit(allocator);
+                // Replace the key in closed_set with the new one
+                goal_gop.key_ptr.* = current_state;
+            }
             stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());
             const solution = try reconstructPath(allocator, current_state, &stats, closed_set);
             return solution;
         }
 
-        try closed_set.put(current_state, {});
+        const closed_gop = try closed_set.getOrPut(current_state);
+        if (closed_gop.found_existing) {
+            // Invariant: Duplicate states must be equal by hash and eql
+            assert(closed_gop.key_ptr.*.hash() == current_state.hash());
+            assert(closed_gop.key_ptr.*.eql(current_state));
+            // Invariant: The old state in closed_set should have been processed with equal or better g_cost
+            // (since we skip states with worse g_costs earlier in the loop)
+            if (best_g.get(closed_gop.key_ptr.*)) |old_g| {
+                assert(old_g <= current_state.g_cost);
+            }
+            // This state is a duplicate of one already in closed_set
+            // The one in closed_set was processed first, so has equal or better g-cost
+            // Clean up this duplicate
+            current_state.deinit(allocator);
+            continue;
+        }
+        // Invariant: Current state is now in closed_set
+        assert(closed_set.contains(current_state));
         stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());
 
         const successors = try generateSuccessors(allocator, current_state, goal_lookup, heuristic_fn, mode);
         defer allocator.free(successors);
+        // Invariant: generateSuccessors should return 2-4 successors (for valid puzzle states)
+        assert(successors.len >= 2 and successors.len <= 4);
 
         for (successors) |successor| {
-            // Relaxation: only add if this is a better path
+            // Invariant: Successor should be a valid state with proper g_cost
+            assert(successor.g_cost == current_state.g_cost + 1);
+            successor.validateInvariants();
+            
+            // Relaxation: check if we already have this state with a better or equal g-cost
             if (best_g.get(successor)) |existing_g| {
                 if (successor.g_cost >= existing_g) {
+                    // Invariant: If skipping, existing path must be strictly better or equal
+                    assert(existing_g <= successor.g_cost);
+                    // Not a better path, skip this successor
                     successor.deinit(allocator);
                     continue;
                 }
+                // Invariant: This is a better path - successor g_cost must be strictly less
+                assert(successor.g_cost < existing_g);
+                // This is a better path - the old entry will be naturally replaced
+                // when this successor is popped from open_set and processed
             }
-            // Update best known g-cost for this state
-            try best_g.put(successor, successor.g_cost);
+            // Add this state with its g-cost (will be updated when processed from open_set)
             try open_set.add(.{ .state = successor });
         }
         stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());

@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "path": [
+    {
+      "tiles": [1, 2, 3, 8, 4, 0, 7, 6, 5],
+      "g_cost": 0,
+      "h_cost": 1,
+      "f_cost": 1
+    },
+    {
+      "tiles": [1, 2, 3, 8, 0, 4, 7, 6, 5],
+      "g_cost": 1,
+      "h_cost": 0,
+      "f_cost": 1
+    }
+  ],
+  "statistics": {
+    "states_selected": 6,
+    "max_states_in_memory": 4,
+    "solution_length": 1
+  },
+  "error": null
+}
