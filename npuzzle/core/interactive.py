@@ -12,6 +12,9 @@ BOLD = "\033[1m"
 GREEN = "\033[32m"
 RED = "\033[31m"
 ORANGE = "\033[38;5;208m"
+CYAN = "\033[36m"
+YELLOW = "\033[33m"
+MAGENTA = "\033[35m"
 
 
 class InteractiveViewer:
@@ -20,7 +23,7 @@ class InteractiveViewer:
         self.current_step = 0
         self.total_steps = len(solution.states) - 1
         self.goal_state = self._generate_goal_state()
-        self.show_stats = False
+        self.view_mode = "grid"
 
     def _generate_goal_state(self) -> list[int]:
         tiles = self.solution.states[0].tiles
@@ -102,9 +105,9 @@ class InteractiveViewer:
         output_lines.append(f"Space complexity     : {s.max_states_in_memory}")
         output_lines.append("")
 
-        output_lines.append("← Back to grid")
+        output_lines.append("← Back  |  Graph →")
         output_lines.append("")
-        output_lines.append("Press 'q' to quit")
+        output_lines.append("Press 'q' to quit  |  'r' to restart")
 
         full_output = '\n'.join(output_lines)
         centered = self.center_text(full_output, width)
@@ -113,6 +116,112 @@ class InteractiveViewer:
         sys.stdout.write('\n' * padding_lines)
         sys.stdout.write(centered)
         sys.stdout.flush()
+
+    def render_graph_view(self) -> None:
+        self.clear_screen()
+
+        width, height = self.get_terminal_size()
+
+        output_lines = []
+
+        title = "═══ Cost Evolution Graph ═══"
+        output_lines.append(title)
+        output_lines.append("")
+
+        graph = self._render_cost_graph(width - 10)
+        output_lines.extend(graph.split('\n'))
+
+        output_lines.append("")
+        output_lines.append("← Back to stats")
+        output_lines.append("")
+        output_lines.append("Press 'q' to quit  |  'r' to restart")
+
+        full_output = '\n'.join(output_lines)
+        centered = self.center_text(full_output, width)
+
+        padding_lines = max(0, (height - len(output_lines)) // 2 - 2)
+        sys.stdout.write('\n' * padding_lines)
+        sys.stdout.write(centered)
+        sys.stdout.flush()
+
+    def _render_cost_graph(self, max_width: int) -> str:
+        states = self.solution.states
+        
+        g_costs = [s.g_cost for s in states]
+        h_costs = [s.h_cost for s in states]
+        f_costs = [s.f_cost for s in states]
+
+        max_cost = max(max(g_costs), max(h_costs), max(f_costs))
+        if max_cost == 0:
+            max_cost = 1
+
+        graph_height = 12
+        graph_width = min(len(states), max_width - 15)
+
+        lines = []
+
+        legend = f"{CYAN}g{RESET} = g_cost  {YELLOW}h{RESET} = h_cost  {MAGENTA}f{RESET} = f_cost"
+        lines.append(legend)
+        lines.append("")
+
+        step = max(1, len(states) // graph_width)
+        sampled_indices = list(range(0, len(states), step))
+        if len(states) - 1 not in sampled_indices:
+            sampled_indices.append(len(states) - 1)
+
+        g_sampled = [g_costs[i] for i in sampled_indices]
+        h_sampled = [h_costs[i] for i in sampled_indices]
+        f_sampled = [f_costs[i] for i in sampled_indices]
+
+        for row in range(graph_height, -1, -1):
+            threshold = (row / graph_height) * max_cost
+            
+            if row == graph_height:
+                line_parts = [f"{max_cost:3.0f} ┤"]
+            elif row == 0:
+                line_parts = [f"  0 ┤"]
+            elif row == graph_height // 2:
+                line_parts = [f"{max_cost/2:3.0f} ┤"]
+            else:
+                line_parts = ["    │"]
+
+            for i in range(len(g_sampled)):
+                g_val = g_sampled[i]
+                h_val = h_sampled[i]
+                f_val = f_sampled[i]
+
+                chars = []
+                
+                g_diff = abs(g_val - threshold)
+                h_diff = abs(h_val - threshold)
+                f_diff = abs(f_val - threshold)
+
+                if g_diff < (max_cost / graph_height):
+                    chars.append((g_diff, 'g', CYAN))
+                if h_diff < (max_cost / graph_height):
+                    chars.append((h_diff, 'h', YELLOW))
+                if f_diff < (max_cost / graph_height):
+                    chars.append((f_diff, 'f', MAGENTA))
+
+                if chars:
+                    chars.sort()
+                    _, char, color = chars[0]
+                    line_parts.append(f"{color}⠁{RESET}")
+                else:
+                    line_parts.append(" ")
+
+            lines.append("".join(line_parts))
+
+        bottom_line = "    └" + "─" * len(g_sampled)
+        lines.append(bottom_line)
+
+        step_label = f"     0"
+        step_label += " " * (len(g_sampled) - 10)
+        step_label += f"{len(states) - 1}"
+        lines.append(step_label)
+        lines.append("     Steps →")
+
+        return '\n'.join(lines)
 
     def render_state(self) -> None:
         self.clear_screen()
@@ -164,7 +273,7 @@ class InteractiveViewer:
         nav_line = "".join(nav_parts)
         output_lines.append(nav_line)
         output_lines.append("")
-        output_lines.append("Press 'q' to quit")
+        output_lines.append("Press 'q' to quit  |  'r' to restart")
         
 
         full_output = '\n'.join(output_lines)
@@ -254,8 +363,10 @@ class InteractiveViewer:
 
     def run(self) -> None:
         try:
-            if self.show_stats:
+            if self.view_mode == "stats":
                 self.render_stats_view()
+            elif self.view_mode == "graph":
+                self.render_graph_view()
             else:
                 self.render_state()
             
@@ -264,24 +375,34 @@ class InteractiveViewer:
                 
                 if key.lower() == 'q':
                     break
+                elif key.lower() == 'r':
+                    self.current_step = 0
+                    self.view_mode = "grid"
+                    self.render_state()
                 elif key == 'RIGHT':
-                    if self.show_stats:
+                    if self.view_mode == "graph":
                         pass
+                    elif self.view_mode == "stats":
+                        self.view_mode = "graph"
+                        self.render_graph_view()
                     elif self.current_step < self.total_steps:
                         self.current_step += 1
                         self.render_state()
                     elif self.current_step == self.total_steps:
-                        self.show_stats = True
+                        self.view_mode = "stats"
                         self.render_stats_view()
                 elif key == 'LEFT':
-                    if self.show_stats:
-                        self.show_stats = False
+                    if self.view_mode == "graph":
+                        self.view_mode = "stats"
+                        self.render_stats_view()
+                    elif self.view_mode == "stats":
+                        self.view_mode = "grid"
                         self.render_state()
                     elif self.current_step > 0:
                         self.current_step -= 1
                         self.render_state()
                 elif key == ' ':
-                    if not self.show_stats and self.current_step < self.total_steps:
+                    if self.view_mode == "grid" and self.current_step < self.total_steps:
                         self.current_step += 1
                         self.render_state()
             
