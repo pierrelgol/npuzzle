@@ -109,9 +109,11 @@ fn puzzleToState(allocator: std.mem.Allocator, puzzle: *const gen.Puzzle) !*Stat
 }
 
 pub fn main() !void {
-    var gpa_instance: heap.DebugAllocator(.{}) = .init;
-    defer _ = gpa_instance.deinit();
-    const allocator = gpa_instance.allocator();
+    // var gpa_instance: heap.DebugAllocator(.{}) = .init;
+    // defer _ = gpa_instance.deinit();
+    // const allocator = gpa_instance.allocator();
+
+    const allocator = heap.smp_allocator;
 
     var threaded: Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
