@@ -20,6 +20,7 @@ class InteractiveViewer:
         self.current_step = 0
         self.total_steps = len(solution.states) - 1
         self.goal_state = self._generate_goal_state()
+        self.show_stats = False
 
     def _generate_goal_state(self) -> list[int]:
         tiles = self.solution.states[0].tiles
@@ -84,6 +85,35 @@ class InteractiveViewer:
             centered_lines.append(' ' * padding + line)
         return '\n'.join(centered_lines)
 
+    def render_stats_view(self) -> None:
+        self.clear_screen()
+
+        width, height = self.get_terminal_size()
+
+        output_lines = []
+
+        title = "═══ Solution Statistics ═══"
+        output_lines.append(title)
+        output_lines.append("")
+
+        s = self.solution.statistics
+        output_lines.append(f"Total moves          : {s.solution_length}")
+        output_lines.append(f"Time complexity      : {s.states_selected}")
+        output_lines.append(f"Space complexity     : {s.max_states_in_memory}")
+        output_lines.append("")
+
+        output_lines.append("← Back to grid")
+        output_lines.append("")
+        output_lines.append("Press 'q' to quit")
+
+        full_output = '\n'.join(output_lines)
+        centered = self.center_text(full_output, width)
+
+        padding_lines = max(0, (height - len(output_lines)) // 2 - 2)
+        sys.stdout.write('\n' * padding_lines)
+        sys.stdout.write(centered)
+        sys.stdout.flush()
+
     def render_state(self) -> None:
         self.clear_screen()
         
@@ -123,13 +153,13 @@ class InteractiveViewer:
             nav_parts.append("← Prev")
         else:
             nav_parts.append("       ")
-        
+
         nav_parts.append("  |  ")
-        
+
         if self.current_step < self.total_steps:
             nav_parts.append("Next →")
         else:
-            nav_parts.append("       ")
+            nav_parts.append("Stats →")
         
         nav_line = "".join(nav_parts)
         output_lines.append(nav_line)
@@ -224,21 +254,34 @@ class InteractiveViewer:
 
     def run(self) -> None:
         try:
-            self.render_state()
+            if self.show_stats:
+                self.render_stats_view()
+            else:
+                self.render_state()
             
             while True:
                 key = self.get_key()
                 
                 if key.lower() == 'q':
                     break
-                elif key == 'RIGHT' and self.current_step < self.total_steps:
-                    self.current_step += 1
-                    self.render_state()
-                elif key == 'LEFT' and self.current_step > 0:
-                    self.current_step -= 1
-                    self.render_state()
-                elif key == ' ':  # Space bar
-                    if self.current_step < self.total_steps:
+                elif key == 'RIGHT':
+                    if self.show_stats:
+                        pass
+                    elif self.current_step < self.total_steps:
+                        self.current_step += 1
+                        self.render_state()
+                    elif self.current_step == self.total_steps:
+                        self.show_stats = True
+                        self.render_stats_view()
+                elif key == 'LEFT':
+                    if self.show_stats:
+                        self.show_stats = False
+                        self.render_state()
+                    elif self.current_step > 0:
+                        self.current_step -= 1
+                        self.render_state()
+                elif key == ' ':
+                    if not self.show_stats and self.current_step < self.total_steps:
                         self.current_step += 1
                         self.render_state()
             

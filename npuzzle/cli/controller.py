@@ -5,10 +5,10 @@ import time
 from typing import List, Optional
 
 from npuzzle.core.constants import ARGUMENTS_WHITELIST
-from npuzzle.core.exceptions import SubprocessError
+from npuzzle.core.exceptions import SubprocessError, SolverFailedError
 from npuzzle.core.interactive import show_interactive
 from npuzzle.core.signals import SignalHandler, register_signal_handler
-from npuzzle.core.solution import Solution
+from npuzzle.core.solution import Solution, display_puzzle_grid
 from npuzzle.gen.exceptions import InvalidSize
 from npuzzle.gen.puzzle import Puzzle
 
@@ -88,10 +88,12 @@ class Controller:
         except Exception as e:
             raise SubprocessError(f"Failed to execute solver: {e}")
 
-    def create_solution(self, json_output: str) -> Solution:
+    def create_solution(self, json_output: str) -> Optional[Solution]:
         try:
             solution = Solution.from_json(json_output)
             return solution
+        except SolverFailedError:
+            return None
         except Exception as e:
             print(f"Error creating solution: {e}", file=sys.stderr)
             sys.exit(1)
@@ -102,7 +104,19 @@ class Controller:
             milliseconds = int((self.solver_time - seconds) * 1000)
             print(f"Solver execution time: {seconds}s{milliseconds}ms")
 
-    def run(self) -> Solution:
+    def handle_unsolvable_puzzle(self) -> None:
+        """Display message and grid for unsolvable puzzle."""
+        print("\n" + "=" * 50)
+        print("PUZZLE IS UNSOLVABLE")
+        print("=" * 50)
+        display_puzzle_grid(self.puzzle.grid, "Initial Puzzle State")
+        print("\nThis puzzle configuration cannot be solved.")
+        if self.solver_time is not None:
+            seconds = int(self.solver_time)
+            milliseconds = int((self.solver_time - seconds) * 1000)
+            print(f"Solver execution time: {seconds}s{milliseconds}ms")
+
+    def run(self) -> Optional[Solution]:
         self.register_signal_handler()
         args = self.parse_arguments()
         self.puzzle = self.generate_puzzle(args)
@@ -112,12 +126,16 @@ class Controller:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         self.solution = self.create_solution(json_output)
-        
+
+        if self.solution is None:
+            self.handle_unsolvable_puzzle()
+            return None
+
         if args.interactive:
             show_interactive(self.solution)
         else:
             self.solution.display()
             self.solution.display_statistics()
             self.display_solver_time()
-        
+
         return self.solution

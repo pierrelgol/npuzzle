@@ -12,6 +12,27 @@ BLUE = "\033[34m"
 ORANGE = "\033[38;5;208m"
 
 
+def display_puzzle_grid(tiles: list[int], title: str = "Puzzle") -> None:
+    """Display a puzzle grid in the same format as solution states."""
+    size = int(math.sqrt(len(tiles)))
+    width = len(str(size * size))
+    horizontal = "+" + "+".join(["-" * (width + 2)] * size) + "+"
+
+    print(f"\n{title}")
+    print(horizontal)
+    for r in range(size):
+        row = []
+        for c in range(size):
+            value = tiles[c + r * size]
+            if value == 0:
+                cell = " " * width
+            else:
+                cell = f"{value:>{width}}"
+            row.append(f" {cell} ")
+        print("|" + "|".join(row) + "|")
+        print(horizontal)
+
+
 def bold(text: str) -> str:
     return f"{BOLD}{text}{RESET}"
 
@@ -142,6 +163,6 @@ class Solution:
     def display_statistics(self) -> None:
         s = self.statistics
         print("\nStatistics")
-        print(f"States selected      : {s.states_selected}")
-        print(f"Max states in memory : {s.max_states_in_memory}")
-        print(f"Solution length      : {s.solution_length}")
+        print(f"Total moves          : {s.solution_length}")
+        print(f"Time complexity      : {s.states_selected}")
+        print(f"Space complexity     : {s.max_states_in_memory}")

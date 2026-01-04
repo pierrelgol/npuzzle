@@ -8,6 +8,8 @@ def main(argc: int, argv: List[str]) -> int:
     controller = Controller(argv)
     try:
         solution = controller.run()
+        if solution is None:
+            return 1
         return 0
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
