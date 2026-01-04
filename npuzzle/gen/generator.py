@@ -1,4 +1,4 @@
-from gen.exceptions import (
+from npuzzle.gen.exceptions import (
     ConflictingOptions,
     InvalidNumber,
     InvalidSize,

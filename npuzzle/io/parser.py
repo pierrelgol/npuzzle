@@ -1,12 +1,12 @@
-from io.exceptions import (
+from pathlib import Path
+from typing import List
+
+from npuzzle.core.constants import MAX_SIZE
+from npuzzle.io.exceptions import (
     InvalidDimensions,
     InvalidSizeError,
     MissingSizeError,
 )
-from pathlib import Path
-from typing import List
-
-from core.constants import MAX_SIZE
 
 
 def parse_input_file(file_path: Path) -> List[int]:

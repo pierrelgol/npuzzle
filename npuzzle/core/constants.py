@@ -58,4 +58,10 @@ ARGUMENTS_WHITELIST = [
         "help": "generator shuffle number",
         "default": 200,
     },
+    {
+        "flags": ["--interactive"],
+        "action": "store_true",
+        "default": False,
+        "help": "Display solution in interactive mode",
+    },
 ]

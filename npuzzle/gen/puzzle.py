@@ -1,7 +1,7 @@
 import random as rd
 from typing import List
 
-from gen.exceptions import InvalidSize
+from npuzzle.gen.exceptions import InvalidSize
 
 
 class Puzzle:

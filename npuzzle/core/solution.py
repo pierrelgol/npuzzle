@@ -4,7 +4,7 @@ import json
 import math
 from dataclasses import dataclass
 
-from core.exceptions import InvalidSolutionFormat, SolverFailedError
+from npuzzle.core.exceptions import InvalidSolutionFormat, SolverFailedError
 
 RESET = "\033[0m"
 BOLD = "\033[1m"

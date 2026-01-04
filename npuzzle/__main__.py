@@ -1,7 +1,7 @@
 import sys
 from typing import List
 
-from cli.controller import Controller
+from npuzzle.cli.controller import Controller
 
 
 def main(argc: int, argv: List[str]) -> int:

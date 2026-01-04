@@ -4,12 +4,13 @@ import sys
 import time
 from typing import List, Optional
 
-from core.constants import ARGUMENTS_WHITELIST
-from core.exceptions import SubprocessError
-from core.signals import SignalHandler, register_signal_handler
-from core.solution import Solution
-from gen.exceptions import InvalidSize
-from gen.puzzle import Puzzle
+from npuzzle.core.constants import ARGUMENTS_WHITELIST
+from npuzzle.core.exceptions import SubprocessError
+from npuzzle.core.interactive import show_interactive
+from npuzzle.core.signals import SignalHandler, register_signal_handler
+from npuzzle.core.solution import Solution
+from npuzzle.gen.exceptions import InvalidSize
+from npuzzle.gen.puzzle import Puzzle
 
 
 class Controller:
@@ -111,7 +112,12 @@ class Controller:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
         self.solution = self.create_solution(json_output)
-        self.solution.display()
-        self.solution.display_statistics()
-        self.display_solver_time()
+        
+        if args.interactive:
+            show_interactive(self.solution)
+        else:
+            self.solution.display()
+            self.solution.display_statistics()
+            self.display_solver_time()
+        
         return self.solution
