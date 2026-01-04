@@ -46,7 +46,7 @@ pub fn solveParallel(
         initial_best_g_shard.mutex.lock();
         defer initial_best_g_shard.mutex.unlock();
         const initial_gop = try initial_best_g_shard.map.getOrPut(pooled_initial);
-        initial_gop.value_ptr.* = undefined;
+        initial_gop.value_ptr.* = 0;
     }
 
     try shared_state.addToOpen(0, pooled_initial, 0);
@@ -153,11 +153,11 @@ const ThreadQueue = struct {
 const SHARD_COUNT: usize = 16;
 
 const ClosedShard = struct {
-    map: std.HashMap(*const State, void, StateHashContext, 80),
+    map: std.HashMap(*const State, u32, StateHashContext, 80),
     mutex: std.Thread.Mutex = .{},
 
     fn init(allocator: std.mem.Allocator) ClosedShard {
-        return .{ .map = std.HashMap(*const State, void, StateHashContext, 80).init(allocator) };
+        return .{ .map = std.HashMap(*const State, u32, StateHashContext, 80).init(allocator) };
     }
 
     fn deinit(self: *ClosedShard) void {
@@ -355,19 +355,28 @@ fn worker(
             continue;
         }
 
-        // Add to closed set for memory management
+        // Add to closed set with reopening support
         var should_skip = false;
         var shard = &shared.closed_shards[shard_index];
         shard.mutex.lock();
-        if (shard.map.contains(node.state)) {
-            should_skip = true;
-        } else {
-            shard.map.put(node.state, {}) catch {
+        const closed_gop = shard.map.getOrPut(node.state) catch {
+            shard.mutex.unlock();
+            continue;
+        };
+
+        if (closed_gop.found_existing) {
+            // State already in closed set - check if we found a better path
+            if (node.state.g_cost < closed_gop.value_ptr.*) {
+                // Better path found! Update the g_cost and continue processing
+                closed_gop.value_ptr.* = node.state.g_cost;
+            } else {
+                // Existing path is better or equal, skip this state
                 should_skip = true;
-            };
-            if (!should_skip) {
-                _ = shared.closed_count.fetchAdd(1, .seq_cst);
             }
+        } else {
+            // First time seeing this state in closed set
+            closed_gop.value_ptr.* = node.state.g_cost;
+            _ = shared.closed_count.fetchAdd(1, .seq_cst);
         }
         shard.mutex.unlock();
 

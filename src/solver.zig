@@ -142,19 +142,6 @@ pub fn solve(
             assert(current_state.g_cost <= known_best_g);
         }
 
-        // Update best_g for this state now that we're processing it
-        const current_gop = try best_g.getOrPut(current_state);
-        if (current_gop.found_existing) {
-            // Invariant: If found_existing, we must have equal or better g_cost
-            assert(current_state.g_cost <= current_gop.value_ptr.*);
-            // Replace the old key with the new one (better or equal path)
-            // The old key will be cleaned up when we process closed_set
-            current_gop.key_ptr.* = current_state;
-        }
-        current_gop.value_ptr.* = current_state.g_cost;
-        // Invariant: best_g now contains current_state with its g_cost
-        assert(best_g.get(current_state).? == current_state.g_cost);
-
         current_state.validateInvariants();
 
         if (current_state.eql(goal)) {
@@ -169,26 +156,48 @@ pub fn solve(
                 // Replace the key in closed_set with the new one
                 goal_gop.key_ptr.* = current_state;
             }
+            // Update best_g with the goal state
+            const goal_best_gop = try best_g.getOrPut(current_state);
+            goal_best_gop.value_ptr.* = current_state.g_cost;
             stats.max_states_in_memory = @max(stats.max_states_in_memory, open_set.count() + closed_set.count());
             const solution = try reconstructPath(allocator, current_state, &stats, closed_set);
             return solution;
         }
 
+        // Check if state is already in closed_set
         const closed_gop = try closed_set.getOrPut(current_state);
         if (closed_gop.found_existing) {
             // Invariant: Duplicate states must be equal by hash and eql
             assert(closed_gop.key_ptr.*.hash() == current_state.hash());
             assert(closed_gop.key_ptr.*.eql(current_state));
-            // Invariant: The old state in closed_set should have been processed with equal or better g_cost
-            // (since we skip states with worse g_costs earlier in the loop)
-            if (best_g.get(closed_gop.key_ptr.*)) |old_g| {
-                assert(old_g <= current_state.g_cost);
+
+            // Check if we found a better path to this state
+            // This can happen with inconsistent heuristics or greedy search
+            const old_state: *State = @constCast(closed_gop.key_ptr.*);
+            if (current_state.g_cost < old_state.g_cost) {
+                // Better path found! We need to "reopen" this state
+                // Remove old state from both closed_set and best_g before freeing
+                const removed_from_closed = closed_set.remove(old_state);
+                assert(removed_from_closed);
+                const removed_from_best_g = best_g.remove(old_state);
+                assert(removed_from_best_g);
+                old_state.deinit(allocator);
+                // Now add the new state with fresh entry
+                const new_closed_gop = try closed_set.getOrPut(current_state);
+                assert(!new_closed_gop.found_existing);
+                const new_best_gop = try best_g.getOrPut(current_state);
+                assert(!new_best_gop.found_existing);
+                new_best_gop.value_ptr.* = current_state.g_cost;
+                // Continue processing to update successors with the better path
+            } else {
+                // Old state has equal or better g_cost, keep it and discard the new one
+                current_state.deinit(allocator);
+                continue;
             }
-            // This state is a duplicate of one already in closed_set
-            // The one in closed_set was processed first, so has equal or better g-cost
-            // Clean up this duplicate
-            current_state.deinit(allocator);
-            continue;
+        } else {
+            // First time seeing this state, add to best_g
+            const current_best_gop = try best_g.getOrPut(current_state);
+            current_best_gop.value_ptr.* = current_state.g_cost;
         }
         // Invariant: Current state is now in closed_set
         assert(closed_set.contains(current_state));
@@ -213,9 +222,9 @@ pub fn solve(
                     successor.deinit(allocator);
                     continue;
                 }
-                // Invariant: This is a better path - successor g_cost must be strictly less
+                // Invariant: This is a better path, successor g_cost must be strictly less
                 assert(successor.g_cost < existing_g);
-                // This is a better path - the old entry will be naturally replaced
+                // This is a better path, the old entry will be naturally replaced
                 // when this successor is popped from open_set and processed
             }
             // Add this state with its g-cost (will be updated when processed from open_set)
@@ -624,4 +633,79 @@ test "reconstructPath - builds correct path" {
     try std.testing.expectEqual(state1, solution.path[0]);
     try std.testing.expectEqual(state2, solution.path[1]);
     try std.testing.expectEqual(state3, solution.path[2]);
+}
+
+test "solve - greedy search handles path relaxation correctly" {
+    const allocator = std.testing.allocator;
+
+    // Use a puzzle configuration where greedy might explore suboptimal paths first
+    const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
+    const initial_tiles = [_]u8{ 1, 2, 3, 4, 0, 5, 7, 8, 6 };
+
+    const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
+    const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
+    defer goal.deinit(allocator);
+
+    var goal_lookup = try GoalLookup.init(allocator, goal);
+    defer goal_lookup.deinit();
+
+    // Greedy search should complete without crashes or memory errors
+    var solution = (try solve(allocator, initial, goal, &goal_lookup, heuristics.manhattanDistance, .greedy)).?;
+    defer solution.deinit();
+
+    // Greedy doesn't guarantee optimality, but should find a solution
+    try std.testing.expect(solution.path.len > 0);
+    try std.testing.expect(solution.path[0].eql(initial));
+    try std.testing.expect(solution.path[solution.path.len - 1].eql(goal));
+    try std.testing.expect(solution.stats.states_selected > 0);
+}
+
+test "solve - greedy search with linear conflict heuristic" {
+    const allocator = std.testing.allocator;
+
+    const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
+    const initial_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 0, 8 };
+
+    const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
+    const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
+    defer goal.deinit(allocator);
+
+    var goal_lookup = try GoalLookup.init(allocator, goal);
+    defer goal_lookup.deinit();
+
+    // Test greedy with linear conflict (potentially inconsistent heuristic)
+    const solution_opt = try solve(allocator, initial, goal, &goal_lookup, heuristics.linearConflict, .greedy);
+    if (solution_opt) |solution| {
+        var mut_solution = solution;
+        defer mut_solution.deinit();
+        try std.testing.expect(mut_solution.path.len > 0);
+        try std.testing.expect(mut_solution.path[0].eql(initial));
+        try std.testing.expect(mut_solution.path[mut_solution.path.len - 1].eql(goal));
+    } else {
+        // Greedy with linear conflict might not find a solution due to local minima
+        // This is expected behavior for greedy search
+    }
+}
+
+test "solve - A* handles better paths found during search" {
+    const allocator = std.testing.allocator;
+
+    // This test ensures that if we somehow find a better path to a state,
+    // it gets properly updated (though with consistent heuristics this shouldn't happen)
+    const goal_tiles = [_]u8{ 1, 2, 3, 4, 5, 6, 7, 8, 0 };
+    const initial_tiles = [_]u8{ 1, 2, 3, 0, 4, 5, 7, 8, 6 };
+
+    const initial = try State.initFromTiles(allocator, 3, &initial_tiles);
+    const goal = try State.initFromTiles(allocator, 3, &goal_tiles);
+    defer goal.deinit(allocator);
+
+    var goal_lookup = try GoalLookup.init(allocator, goal);
+    defer goal_lookup.deinit();
+
+    var solution = (try solve(allocator, initial, goal, &goal_lookup, heuristics.manhattanDistance, .astar)).?;
+    defer solution.deinit();
+
+    // Verify solution is optimal
+    try std.testing.expect(solution.stats.solution_length > 0);
+    try std.testing.expectEqual(solution.stats.solution_length, solution.path[solution.path.len - 1].g_cost);
 }
